@@ -127,6 +127,7 @@ dmypy.json
 
 # mflow
 *mlruns/
+mlflow.db
 
 # Pyre type checker
 .pyre/
@@ -146,3 +147,5 @@ AGENTS.md
 
 # Benchmark artifacts
 benchmarks/out/
+
+slirp.out
