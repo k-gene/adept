@@ -80,7 +80,7 @@ class SBSVectorField(BaseLPIVectorField):
 
         omega_p2_elec = n_over_n0 * self.w0**2.0  # omega_pe^2
         omega_p2_ion = Zeff / self.ratio_M_m * omega_p2_elec  # omega_pi^2
-        omega_beat_plasframe = omegabeat + 2 * kz * flow_over_flow0  # Beat frequency in plasma frame/omega
+        omega_beat_plasframe = omegabeat + 2 * kz * flow_over_flow0 * self.cs0  # Beat frequency in plasma frame/omega
 
         v_th_e = self.vth0 * jnp.sqrt(Te_over_T0)
         v_th_i = self.vth0 * jnp.sqrt(Ti_over_T0)
@@ -108,9 +108,8 @@ class SBSVectorField(BaseLPIVectorField):
         imfx0, omega_beat_plasframe, cs, kz, res_cond = self.calc_imfx0_sbs(plasma_conditions_at_z)
 
         dlogJidz = -kappaIB - self.a0**2 * self.kz0 * imfx0 * Jr
-        dlogJrdz = kappaIB - self.a0**2 * self.kz0 * imfx0 * Ji
-
         new_Ji = jnp.exp(self.dz * dlogJidz) * Ji
+        dlogJrdz = kappaIB - self.a0**2 * self.kz0 * imfx0 * new_Ji
         new_Jr = jnp.exp(self.dz * dlogJrdz) * Jr - noise
 
         return {

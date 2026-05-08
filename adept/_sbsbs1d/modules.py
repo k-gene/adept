@@ -9,14 +9,28 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 
+def scale_mlp_params(mlp: eqx.nn.MLP, w_scale: float = 2.0, b_scale: float = 1.0):
+    """Multiply Linear weights/biases by constants."""
+    def scale_leaf(x):
+        # eqx.nn.Linear stores arrays; we just scale all arrays we see.
+        # If you want to only scale weights and not biases, see option (2).
+        if isinstance(x, jnp.ndarray):
+            return x * w_scale
+        return x
+
+
+    # This scales *all* arrays (including biases). Often fine as a first pass.
+    # tree_map doesn't seem to exist and recommended tree_at doesn't work with this call signature
+    # return eqx.tree_map(scale_leaf, mlp)
+    # return eqx.tree_at(scale_leaf,mlp)
+    return jtu.tree_map(scale_leaf,mlp)
 
 class CNN(eqx.Module):
     layers: list
     final_size: int
 
-    def __init__(self, in_channels, in_size, out_features):
-        seed = np.random.randint(0, int(1e4))
-        key = jax.random.PRNGKey(seed)
+    def __init__(self, in_channels, in_size, out_features, *, key):
+        key1, key2, key3, key4 = jax.random.split(key, 4)
         channel_progression = [in_channels, in_channels, in_channels, in_channels]
         self.final_size = in_size * in_channels // 8
         self.layers = [
@@ -26,7 +40,7 @@ class CNN(eqx.Module):
                 kernel_size=4,
                 stride=2,
                 padding=1,
-                key=key,
+                key=key1,
             ),
             jax.nn.relu,
             eqx.nn.Conv1d(
@@ -35,7 +49,7 @@ class CNN(eqx.Module):
                 kernel_size=4,
                 stride=2,
                 padding=1,
-                key=key,
+                key=key2,
             ),
             jax.nn.relu,
             eqx.nn.Conv1d(
@@ -44,10 +58,10 @@ class CNN(eqx.Module):
                 kernel_size=4,
                 stride=2,
                 padding=1,
-                key=key,
+                key=key3,
             ),
             jax.nn.relu,
-            eqx.nn.Linear(in_features=self.final_size, out_features=out_features, key=key),
+            eqx.nn.Linear(in_features=self.final_size, out_features=out_features, key=key4),
         ]
 
     def __call__(self, x):
@@ -70,16 +84,13 @@ class HohlNet(eqx.Module):
     quantity_bounds: dict
     model_cfg: dict
 
-    def __init__(self, beams, t_pts, n_design_params):
-        self.model_cfg = dict(beams=beams, t_pts=t_pts, n_design_params=n_design_params)
-        seed = np.random.randint(0, int(1e4))
-        key = jax.random.PRNGKey(seed)
+    def __init__(self, beams, t_pts, n_design_params, seed=0):
+        self.model_cfg = dict(beams=beams, t_pts=t_pts, n_design_params=n_design_params, seed=seed)
+        seed = int(seed)
         cnn_out_features = 64
         depth = 3
         width = 16
 
-        self.nn_input_laser_leh = CNN(beams, t_pts, cnn_out_features)
-        self.nn_mlp_leh = eqx.nn.MLP(cnn_out_features + n_design_params + 1, 9, width_size=width, depth=depth, key=key)
         self.leh_outputs = [
             "n_over_n0",
             "Te_over_T0",
@@ -91,50 +102,142 @@ class HohlNet(eqx.Module):
             "A_ion",
             "L_p",
         ]
-        # self.quantity_bounds = {'n_over_n0':[1e-4,1],
-        #                         'Te_over_T0':[0.01,8],
-        #                         'Ti_over_T0':[0.01,8],
-        #                         'flow_over_flow0':[0,5],
-        #                         'flow_magnitude':[0,1e-3],
-        #                         'flow_theta':[0,jnp.pi],
-        #                         'flow_phi':[0,2*jnp.pi],
-        #                         'Zeff':[1,100],
-        #                         'A_ion':[1,300],
-        #                         'L_p': [5,1e4/0.33],
-        #                         'omegabeat':[1e17*1e-6,1e17*1e-2],
-        #                         'thermal_noise':[1e-10,1e-1]}
+        self.quantity_bounds = {'n_over_n0':[1e-4,0.25],
+                                'Te_over_T0':[0.01,8],
+                                'Ti_over_T0':[0.01,8],
+                                'flow_over_flow0':[0,5],
+                                'flow_magnitude':[0,1e-3],
+                                'flow_theta':[0,jnp.pi],
+                                'flow_phi':[0,2*jnp.pi],
+                                'Zeff':[1,100],
+                                'A_ion':[1,300],
+                                'L_p': [5,1e4/0.33],
+                                'omegabeat':[1e11,1e13],
+                                'thermal_noise':[1e-10,1e-1]}
 
-        self.quantity_bounds = {
-            "n_over_n0": [1e-3, 2.5e-2],
-            "Te_over_T0": [1.0, 2.0],
-            "Ti_over_T0": [1.0 / 3, 2.0 / 3],
-            "flow_over_flow0": [0, 1e-3],
-            "flow_magnitude": [0, 1e-5],
-            "flow_theta": [0, jnp.pi],
-            "flow_phi": [0, 2 * jnp.pi],
-            "Zeff": [3, 5],
-            "A_ion": [10, 15],
-            "L_p": [400.0, 800.0],
-            "omegabeat": [1e12, 1e13],
-            "thermal_noise": [1e-10, 1e-1],
-        }
+        # self.quantity_bounds = {
+        #     "n_over_n0": [1e-3, 2.5e-2],
+        #     "Te_over_T0": [1.0, 2.0],
+        #     "Ti_over_T0": [1.0 / 3, 2.0 / 3],
+        #     "flow_over_flow0": [0, 1e-3],
+        #     "flow_magnitude": [0, 1e-5],
+        #     "flow_theta": [0, jnp.pi],
+        #     "flow_phi": [0, 2 * jnp.pi],
+        #     "Zeff": [3, 5],
+        #     "A_ion": [10, 15],
+        #     "L_p": [400.0, 800.0],
+        #     "omegabeat": [1e12, 1e13],
+        #     "thermal_noise": [1e-10, 1e-1],
+        # }
         # inputs = embedded input pulse, design inputs, t
         # outputs = n, Te, Ti, flow_magnitude, flow_theta, flow_phi, Zeff, A_ion, Lp
 
-        self.nn_input_laser_hohl = CNN(beams, t_pts, cnn_out_features)
-        self.nn_mlp_hohl = eqx.nn.MLP(cnn_out_features + n_design_params + 3, 7, width_size=width, depth=depth, key=key)
+        key = jax.random.PRNGKey(seed)
+        (
+            key_leh,
+            key_hohl,
+            key_source,
+            key_cnn_leh,
+            key_cnn_hohl,
+            key_cnn_source,
+            key_vmap_design,
+        ) = jax.random.split(key, 7)
+
+        self.nn_input_laser_leh = CNN(beams, t_pts, cnn_out_features, key=key_cnn_leh)
+        self.nn_mlp_leh = eqx.nn.MLP(cnn_out_features + n_design_params + 1, 9, width_size=width, depth=depth, key=key_leh)
+
+        self.nn_input_laser_hohl = CNN(beams, t_pts, cnn_out_features, key=key_cnn_hohl)
+        self.nn_mlp_hohl = eqx.nn.MLP(cnn_out_features + n_design_params + 3, 7, width_size=width, depth=depth, key=key_hohl)
         self.hohl_outputs = ["n_over_n0", "Te_over_T0", "Ti_over_T0", "flow_over_flow0", "Zeff", "A_ion", "omegabeat"]
         # inputs = embedded input pulse, design inputs, subcone index, z, t
         # outputs = n, Te, Ti, flow (along beam), Zeff, A_ion, omegabeat
 
-        self.nn_input_laser_sbs_source = CNN(beams, t_pts, cnn_out_features)
+        self.nn_input_laser_sbs_source = CNN(beams, t_pts, cnn_out_features, key=key_cnn_source)
         self.nn_mlp_sbs_source = eqx.nn.MLP(
-            cnn_out_features + n_design_params + 2, 1, width_size=width, depth=depth, key=key
+            cnn_out_features + n_design_params + 2, 1, width_size=width, depth=depth, key=key_source
         )
         self.sbs_source_outputs = ["thermal_noise"]
         # inputs = embedded input pulse, design inputs, subcone index, t
         # outputs = thermal_noise
 
+        repeats = 10
+        ts = jnp.linspace(0,1,t_pts)
+        vmap_in_laser = jnp.tile(ts**2,reps = (repeats,beams,1))
+        vmap_design = jax.random.uniform(key=key_vmap_design, shape=(repeats, n_design_params))
+        vmap_z = jnp.linspace(0,1,repeats)
+        vmap_t = jnp.linspace(0,1,repeats)
+        vmap_beams = jnp.arange(repeats)
+
+        beam_outs = np.stack(
+            [
+                jax.flatten_util.ravel_pytree(
+                    self.hohl_eval(
+                        vmap_in_laser[i],
+                        vmap_design[i],
+                        vmap_beams[i:i+1],
+                        vmap_z[i:i+1],
+                        vmap_t[i:i+1],
+                    )
+                )[0]
+                for i in range(repeats)
+            ],
+            axis=0,
+        )
+        variation = np.std(beam_outs, axis=0) / np.abs(np.mean(beam_outs, axis=0))
+        print(variation)
+
+        low_scale = 1.0
+        n_steps = 0
+        while variation.mean() < 0.1 and n_steps < 10:
+            n_steps += 1
+            low_scale += 1.0
+            iter_seed = seed + 1000 * n_steps
+            iter_rng = np.random.default_rng(iter_seed)
+            key = jax.random.PRNGKey(iter_seed)
+            key_leh, key_hohl, key_source, key_cnn_leh, key_cnn_hohl, key_cnn_source, key_vmap_design = jax.random.split(key, 7)
+            vmap_design = jax.random.uniform(key=key_vmap_design, shape=(repeats, n_design_params))
+
+            self.nn_input_laser_leh = CNN(beams, t_pts, cnn_out_features, key=key_cnn_leh)
+            self.nn_mlp_leh = eqx.nn.MLP(
+                cnn_out_features + n_design_params + 1, 9, width_size=width, depth=depth, key=key_leh
+            )
+            self.nn_mlp_leh = scale_mlp_params(
+                self.nn_mlp_leh, w_scale=iter_rng.uniform(low=low_scale, high=1.5 * low_scale)
+            )
+
+            self.nn_input_laser_sbs_source = CNN(beams, t_pts, cnn_out_features, key=key_cnn_source)
+            self.nn_mlp_sbs_source = eqx.nn.MLP(
+                cnn_out_features + n_design_params + 2, 1, width_size=width, depth=depth, key=key_source
+            )
+            self.nn_mlp_sbs_source = scale_mlp_params(
+                self.nn_mlp_sbs_source, w_scale=iter_rng.uniform(low=low_scale, high=1.5 * low_scale)
+            )
+
+            self.nn_input_laser_hohl = CNN(beams, t_pts, cnn_out_features, key=key_cnn_hohl)
+            self.nn_mlp_hohl = eqx.nn.MLP(
+                cnn_out_features + n_design_params + 3, 7, width_size=width, depth=depth, key=key_hohl
+            )
+            self.nn_mlp_hohl = scale_mlp_params(
+                self.nn_mlp_hohl, w_scale=iter_rng.uniform(low=low_scale, high=1.5 * low_scale)
+            )
+
+            beam_outs = np.stack(
+                [
+                    jax.flatten_util.ravel_pytree(
+                        self.hohl_eval(
+                            vmap_in_laser[i],
+                            vmap_design[i],
+                            vmap_beams[i:i+1],
+                            vmap_z[i:i+1],
+                            vmap_t[i:i+1],
+                        )
+                    )[0]
+                    for i in range(repeats)
+                ],
+                axis=0,
+            )
+            variation = np.std(beam_outs, axis=0) / np.abs(np.mean(beam_outs, axis=0))
+            print(variation)
     def save(self, file_path):
         """
         Save the model to a file

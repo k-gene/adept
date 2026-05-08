@@ -140,3 +140,9 @@ mlruns
 
 # hatchling-generated version file
 _version.py
+
+# AGENT files
+AGENTS.md
+
+# Benchmark artifacts
+benchmarks/out/

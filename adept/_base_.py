@@ -217,7 +217,7 @@ class ergoExo:
         self.ran_setup = False
         self.cfg = None
 
-    def setup(self, cfg: dict, adept_module: ADEPTModule = None) -> dict[str, Module]:
+    def setup(self, cfg: dict, adept_module: ADEPTModule = None, log: bool = True) -> dict[str, Module]:
         """
         This function sets up the differentiable simulation by getting the chosen solver and setting it up
         At this point in time, the setup includes
@@ -246,22 +246,23 @@ class ergoExo:
         cfg = deepcopy(cfg)
 
         with tempfile.TemporaryDirectory(dir=self.base_tempdir) as td:
-            if self.mlflow_run_id is None:
+            if not log:
+                modules = self._setup_(cfg, td, adept_module, log=False)
+            elif self.mlflow_run_id is None:
                 mlflow.set_experiment(cfg["mlflow"]["experiment"])
                 with mlflow.start_run(
                     run_name=cfg["mlflow"]["run"], nested=self.mlflow_nested, parent_run_id=self.parent_run_id
                 ) as mlflow_run:
-                    modules = self._setup_(cfg, td, adept_module)
+                    modules = self._setup_(cfg, td, adept_module, log=True)
                     robust_log_artifacts(td)  # logs the temporary directory to mlflow
                 self.mlflow_run_id = mlflow_run.info.run_id
-
             else:
                 with mlflow.start_run(
                     run_id=self.mlflow_run_id, nested=self.mlflow_nested, parent_run_id=self.parent_run_id
                 ) as mlflow_run:
                     # with tempfile.TemporaryDirectory(dir=self.base_tempdir) as temp_path:
                     # cfg = get_cfg(artifact_uri=mlflow_run.info.artifact_uri, temp_path=temp_path)
-                    modules = self._setup_(cfg, td, adept_module)
+                    modules = self._setup_(cfg, td, adept_module, log=True)
                     robust_log_artifacts(td)  # logs the temporary directory to mlflow
 
         self.cfg = cfg
@@ -392,8 +393,8 @@ class ergoExo:
         return run_output, post_processing_output, self.mlflow_run_id
 
     def val_and_grad(
-        self, modules: dict | None = None, args: dict | None = None, export=True
-    ) -> tuple[float, dict, tuple[Solution, dict, str]]:
+        self, modules: dict | None = None, args: dict | None = None, export: bool = True, log: bool = True
+    ) -> tuple[float, dict, tuple[Solution, dict, str | None]]:
         """
         This function is the value and gradient of the simulation.
         This is a very similar looking function to the ``__call__`` function
@@ -417,13 +418,14 @@ class ergoExo:
             or passed in during the initialization
         """
         assert self.ran_setup, "You must run self.setup() before running the simulation"
-        with mlflow.start_run(
-            run_id=self.mlflow_run_id, nested=self.mlflow_nested, log_system_metrics=True
-        ) as mlflow_run:
-            t0 = time.time()
-            print('Starting filter_jit')
+
+        if not log:
             (val, run_output), grad = filter_jit(self.adept_module.vg)(modules, args)
-            print('Finished filter_jit')
+            return val, grad, (run_output, {}, None)
+
+        with mlflow.start_run(run_id=self.mlflow_run_id, nested=self.mlflow_nested, log_system_metrics=True):
+            t0 = time.time()
+            (val, run_output), grad = filter_jit(self.adept_module.vg)(modules, args)
             flattened_grad, _ = jax.flatten_util.ravel_pytree(grad)
             mlflow.log_metrics({"run_time": round(time.time() - t0, 4)})  # logs the run time to mlflow
             mlflow.log_metrics({"val": float(val), "l2-grad": float(np.linalg.norm(flattened_grad))})

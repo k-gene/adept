@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import equinox as eqx
 import jax
+from jax import tree_util as jtu
 from jax import numpy as jnp
 
 
@@ -60,7 +61,7 @@ class Vlasov(eqx.Module):
         self.push_a = Vdfdx(cfg)
 
     def __call__(self, prev_f, e, b):
-        delta_f = jax.tree_map(jnp.zeros_like, prev_f)
+        delta_f = jtu.tree_map(jnp.zeros_like, prev_f)
         delta_f = self.push_e(prev_f=prev_f, delta_f=delta_f, e=e)
         delta_f = self.push_b(prev_f=prev_f, delta_f=delta_f, b=b)
         delta_f = self.push_a(prev_f=prev_f, delta_f=delta_f)

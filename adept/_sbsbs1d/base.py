@@ -467,6 +467,7 @@ class SBSBS_CBET(ADEPTModule):
                         beams=self.cfg["laser"]["num_beams"],
                         t_pts=self.cfg["nn"]["tpts"],
                         n_design_params=self.cfg["nn"]["n_design_params"],
+                        seed=int(self.cfg["nn"].get("seed", 0)),
                     )
                 }
         else:
@@ -701,7 +702,7 @@ class SBSBS_CBET(ADEPTModule):
 
     def perform_sbs(
         self, diffeqsolve_quants, beam_modules, thermal_noise, _cbet_light, this_space_quantity, this_grid
-    ):  # ,Jr_target):
+    ):
         # args = {
         #     "n_over_n0": beam_modules["n_over_n0"],
         #     "Te_over_T0": beam_modules["Te_over_T0"],
@@ -869,7 +870,7 @@ class SBSBS_CBET(ADEPTModule):
                     self.cfg["nn_inputs"]["laser_powers"],
                     self.cfg["nn_inputs"]["design"],
                     jnp.array([i]),
-                    jnp.array([z]),
+                    jnp.array([z])/self.cfg["beam"][str(i)]["spec"]["zmax"],
                     self.cfg["nn_inputs"]["t"],
                 )
                 for i in range(self.cfg["laser"]["num_beams"])
@@ -1036,9 +1037,19 @@ class Train_SBSBS_CBET(SBSBS_CBET):
 
     def __call__(self, trainable_modules, args):
         out_dict = super().__call__(trainable_modules=trainable_modules, args=args)
-        reflectivity = args["reflectivity"]
-        Jr = out_dict["sbs results"][0].ys["Jr"][0]
-        error = jnp.mean((Jr - reflectivity) ** 2)
+        reflectivity = jnp.asarray(args["reflectivity"])
+
+        # Mask out beams with zero input power (common in synthetic/shot datasets).
+        beam_mask = args.get("beam_mask", None)
+        if beam_mask is None:
+            beam_mask = jnp.ones_like(reflectivity, dtype=jnp.float32)
+        else:
+            beam_mask = jnp.asarray(beam_mask).astype(jnp.float32)
+
+        Jr0 = jnp.stack([sbs_result.ys["Jr"][0] for sbs_result in out_dict["sbs results"]])
+        sqerr = (Jr0 - reflectivity) ** 2
+        denom = jnp.maximum(jnp.sum(beam_mask), 1.0)
+        error = jnp.sum(sqerr * beam_mask) / denom
         return error, out_dict
 
     def vg(self, trainable_modules, args=None):

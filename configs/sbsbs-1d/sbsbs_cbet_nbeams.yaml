@@ -11,7 +11,7 @@ opt:
   metric_time_in_ps: 6.0
 
 nn:
-  tpts: 512
+  tpts: 128
   n_design_params: 12
 # trainable_params:
 #   Jr_target: [0.1,0.1,0.1,0.1]

@@ -9,6 +9,7 @@ import botocore
 import equinox as eqx
 import flatdict
 import jax
+from jax import tree_util as jtu
 import mlflow
 import yaml
 from mlflow.tracking import MlflowClient
@@ -124,11 +125,11 @@ def all_reduce_gradients(gradients, num):
             else:
                 return a1 / num
 
-        summed_gradients = jax.tree_map(_safe_add, gradients[0], gradients[1], is_leaf=_is_none)
+        summed_gradients = jtu.tree_map(_safe_add, gradients[0], gradients[1], is_leaf=_is_none)
         for i in range(2, num):
-            summed_gradients = jax.tree_map(_safe_add, summed_gradients, gradients[i], is_leaf=_is_none)
+            summed_gradients = jtu.tree_map(_safe_add, summed_gradients, gradients[i], is_leaf=_is_none)
 
-        average_gradient = jax.tree_map(_safe_divide, summed_gradients, is_leaf=_is_none)
+        average_gradient = jtu.tree_map(_safe_divide, summed_gradients, is_leaf=_is_none)
     else:
         average_gradient = gradients[0]
 
