@@ -447,8 +447,7 @@ def run_debug_eval(
     if max_cases is not None:
         case_indices = case_indices[: max(1, int(max_cases))]
 
-    timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
-    run_dir = outdir / f"debug_eval_{timestamp}"
+    run_dir = outdir
     run_dir.mkdir(parents=True, exist_ok=False)
 
     effective_parallelism = min(len(case_indices), workers)
