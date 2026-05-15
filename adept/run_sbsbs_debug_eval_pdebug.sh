@@ -2,6 +2,15 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_ACTIVATE="${ENV_ACTIVATE:-/usr/WS2/kur1/ML_backscatter/mlbs_predmodel/myenv_mlbs_local/bin/activate}"
+
+if [[ ! -f "${ENV_ACTIVATE}" ]]; then
+  echo "Python environment activation script not found: ${ENV_ACTIVATE}" >&2
+  exit 2
+fi
+
+# shellcheck disable=SC1090
+source "${ENV_ACTIVATE}"
 
 CONFIG_PATH="${CONFIG_PATH:-/usr/WS2/kur1/ML_backscatter/adept/configs/sbsbs-1d/sbsbs_cbet_nbeams.yaml}"
 DATA_PATH="${DATA_PATH:-${SCRIPT_DIR}/Fake_ML_Backscatter_Data.npz}"
